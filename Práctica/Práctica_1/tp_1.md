@@ -71,43 +71,136 @@ Donde:
 Para optimizar el rendimiento (eliminar módulos innecesarios), agregar soporte para hardware nuevo, habilitar o deshabilitar características del kernel, agregar parches de seguridad, etc. 
 
 8. ¿Cuáles son las distintas opciones y menús para realizar la configuración de opciones de compilación de un kernel? Cite diferencias, necesidades (paquetes adicionales de software que se pueden requerir), pros y contras de cada una de ellas.  
-
+Las alternativas para configurar el nuevo kernel corresponden: 
+- `make config`: interfaz primitivo basado en modo texto. Sin ayuda ni menúes. 
+- `make menuconfig`: requiere un terminal y un sistema de compilación básico (incluye GNU, gcc y make). Utiliza una librería que permite generar una interfaz con paneles desde la terminal. 
+- `make xconfig`: provee interfaces gráficas. Es menos eficiente en términos de recursos ya que requiere un entorno gráfico instalado y configurado. 
 
 9. Indique qué tarea realiza cada uno de los siguientes comandos durante la configuración/compilación del kernel:  
 
-   - a. `make menuconfig`  
-   - b. `make clean`  
-   - c. `make` (investigue la funcionalidad del parámetro `-j`)  
-   - d. `make modules` (utilizado en antiguos kernels, actualmente no es necesario)  
-   - e. `make modules_install`  
-   - f. `make install`  
+   - a. `make menuconfig`: Inicia la interfaz de configuración menuconfig. Se puede habilitar o deshabilitar características del kernel, ajustar configuraciones de hardware, etc. 
+   - b. `make clean`: se eliminan todos los archivos generados durante el proceso de compilación anterior. De forma que no queden archivos residuales.
+   - c. `make` (investigue la funcionalidad del parámetro `-j`): `make` busca el archivo Makefile, interpreta sus directivas y compila el kernel. El parámetro `-j` se utiliza para especificar el número de trabajos paralelos que pueden ejecutarse durante la compilación. 
+   - d. `make modules` (utilizado en antiguos kernels, actualmente no es necesario): compila unicamente los módulos del kernel, es decir, las partes del kernel que pueden cargarse y descargarse dinámicamente en tiempo de ejecución.  
+   - e. `make modules_install`: después de compilar los módulos del kernel, este comando instala los mo´dulos compilados en el directorio. 
+   - f. `make install` : instala el kernel compilado en el sistema. Copia el kernel y los archivos necesarios al directorio de arranque del sistema. Actualiza la configuración del cargador de arranque para que pueda arrancar el nuevo kernel. 
+
 
 10. Una vez que el kernel fue compilado:  
-
-    - ¿Dónde queda ubicada su imagen?  
+    - ¿Dónde queda ubicada su imagen?
+        Queda ubicado en `directorio-del-código/arch/arquitectura/boot/`. 
     - ¿Dónde debería ser reubicada?  
+        Reubicada en el directorio `/boot`
     - ¿Existe algún comando que realice esta copia en forma automática?  
+        Sí, el comando `sudo make install`
 
 11. ¿A qué hace referencia el archivo `initramfs`? ¿Cuál es su funcionalidad? ¿Bajo qué condiciones puede no ser necesario?  
+Es un sistema de archivos temporal que se monta durante el arranque del sistema. Proporciona un entorno mínimo y temporal que permite al sistema operativo cargar los controladores necesarios, montar el sistema de archivos raíz real y completar el proceso de inicio. Contiene ejecutables, drivers y módulos necesarios para lograr iniciar el sistema. Luego del proceso de arranque el disco se desmonta. 
+
 12. ¿Cuál es la razón por la que, una vez compilado el nuevo kernel, es necesario reconfigurar el gestor de arranque?  
 - El nuevo kernel debe ser detectado: El gestor de arranque carga el sistema operativo, pero solo reconoce los kernels configurados en su archivo de configuración. Si no se actualiza, el sistema seguirá arrancando con el kernel antiguo.
 - Ubicación de la imagen del kernel: cuando se instala el nuevo kernel, su imagen `(vmlinuz-*)` se guarda en `/boot/`. Se debe actualizar GRUB para que apunte a la nueva versión.
 - Actualización del `initramfs`: `initramfs` es una imagen de disco temporal necesaria para que el kernel acceda a los dispositivos antes de montar el sistema de archivos principal. Debe regenerarse para que el nuevo kernel tenga los módulos correctos.
 
 13. ¿Qué es un módulo del kernel? ¿Cuáles son los comandos principales para el manejo de módulos del kernel?  
-14. ¿Qué es un parche del kernel?  
+Es un fragmento de código que puede cargarse/descargarse en el mapa de memoria del SO (kernel) bajo demanda. Éstos permiten extender la funcionalidad del kernel sin la necesidad de reiniciar el sistema. Se ubican en `/lib/modules/version` del kernel. 
+Comandos principales: 
+- `modprobe`: se utiliza para cargar un módulo del kernel en la memoria en tiempo de ejecución. 
+- `insmod`: carga un módulo del kernel en la memoria. No maneja automáticamente las dependencias del módulo. 
+- `rmmod`: se utiliza para eliminar - descargar un módulo del kernel de la memoria. 
+- `lsmod`: muesrta un listado de los módulos del kernel que están actualmente cargados en la memoria del sistema. 
+- `depmod`: se utiliza para generar y manipular los archivos de dependencia de los módulos del kernel. 
 
+
+14. ¿Qué es un parche del kernel?  
+Es un mecanismo que permite aplicar actualizaciones sobre una versión base. Se base en aarchivos diff, que indican que agregar y qué quitar. 
+kernel.org tiene 2 tipos: 
+- No incrementales: se aplican sobre la versión mainline anterior. 
+- Incrementales: Se aplican sobre la versión inmediatamente anterior. 
     - ¿Cuáles son las razones principales por las que se deberían aplicar parches en el kernel?  
-    - ¿A través de qué comando se realiza la aplicación de parches en el kernel?  
+    Pemiten agrgar funcionalidad (nuevos drivers, correcciones menores, etc.)
+    - ¿A través de qué comando se realiza la aplicación de parches en el kernel?
+    Toma un archivo de pache como entrada y aplica los cambios especificados en el código fuente del kernel.
+    ```
+    patch -p <num> <achivo_parche>
+    ```  
 
 15. Investigue la característica *Energy-aware Scheduling* incorporada en el kernel 5.0 y explique brevemente:  
+Optimiza la asignación de procesos a los núcleos del procesador, teniendo en cuenta no solo el rendimiento sino también el consumo energético. 
 
     - a. ¿Qué característica principal tiene un procesador ARM *big.LITTLE*?  
+    Combina núcleos de alto rendimiento (big) y núcleos de bajo consumo (Littke) en un mismo chip.  Diseñado para tareas intensivas que requieren mayor potencia de cómputo, mientras que los Little son más eficientes en consumo energético y se usan para tareas menos exigentes. 
+
     - b. En un procesador ARM *big.LITTLE* y con esta característica habilitada, cuando se despierta un proceso, ¿a qué procesador lo asigna el *scheduler*?  
+    El scheduler pimero intenta asignar el proceso a un núcleo LITTLE si la carga del sistema es baja, priorizando la eficiencia energética. Solo si los núcleos LITTLE están saturados o la tarea requiere más rendimiento, el proceso es migrado a un núcleo *big*.
     - c. ¿A qué tipo de dispositivos cree que beneficia más esta característica?  
+    Beneficia a los dispositovs móviles, portátiles, etc. con el objetivo de prolongar la duración de la batería y evitar sobrecalentamiento. 
 
 16. Investigue la *system call* `memfd_secret()` incorporada en el kernel 5.14 y explique brevemente:  
-
     - a. ¿Cuál es su propósito?  
+    Permite crear áreas de memoria secretas que no pueden ser accedidas ni po el usuario root.  
     - b. ¿Para qué puede ser utilizada?  
+    Se puede utiliza para almacenar claves criptográficas u otros datos que no deben ser expuestos a otros. 
     - c. ¿El kernel puede acceder al contenido de regiones de memoria creadas con esta *system call*?  
+    No :D
+
+---
+
+## B - Ejercicio taller: compilación del kernel Linux 
+1. Descargue los siguientes archivos en un sistema GNU/Linux moderno (se recomienda el directorio `$HOME/kernel/`):  
+
+   - a. El archivo `btrfs.image.xz` publicado en la página web de la cátedra.  
+   - b. El código fuente del kernel 6.13:  
+     ```
+     https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.13.tar.xz
+     ```
+   - c. El parche para actualizar ese código fuente a la versión 6.13.7:  
+     ```
+     https://cdn.kernel.org/pub/linux/kernel/v6.x/patch-6.13.7.xz
+     ```
+
+2. **Preparación del código fuente**  
+
+   - a. Posicionarse en el directorio donde está el código fuente y descomprimirlo:  
+     ```sh
+     cd $HOME/kernel/
+     tar xvf /usr/src/linux-6.13.tar.xz
+     ```
+   - b. Emparchar el código para actualizarlo a la versión 6.8 usando `patch`:  
+     ```sh
+     cd $HOME/kernel/linux-6.13
+     xzcat /usr/src/patch-6.13.7.xz | patch -p1
+     ```
+
+3. **Pre-configuración del kernel**  
+
+   - a. Copiar la configuración actual del kernel:  
+     ```sh
+     cp /boot/config-$(uname -r) $HOME/kernel/linux-6.13/.config
+     ```
+   - b. Generar una configuración adecuada:  
+     ```sh
+     cd $HOME/kernel/linux-6.13
+     make olddefconfig
+     ```
+   - c. Configurar el kernel a medida:  
+     ```sh
+     make localmodconfig
+     ```
+
+4. **Configuración personalizada del kernel**  
+
+   - Ejecutar `menuconfig`:  
+     ```sh
+     make menuconfig
+     ```
+   - Habilitar las siguientes opciones:  
+     - *File Systems* → *Btrfs filesystem support*  
+     - *Device Drivers* → *Block Devices* → *Loopback device support*  
+   - Deshabilitar las siguientes opciones:  
+     - *General setup* → *Configure standard kernel features (expert users)*  
+     - *Kernel hacking* → *Kernel debugging*  
+
+5. **Compilación del kernel**  
+   ```sh
+   make -jX
