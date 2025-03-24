@@ -166,30 +166,33 @@ Optimiza la asignación de procesos a los núcleos del procesador, teniendo en c
      cd $HOME/kernel/
      tar xvf /usr/src/linux-6.13.tar.xz
      ```
+     > Comentario: `$tar xvf ./linux-6.13.tar.xz` 
    - b. Emparchar el código para actualizarlo a la versión 6.8 usando `patch`:  
      ```sh
      cd $HOME/kernel/linux-6.13
      xzcat /usr/src/patch-6.13.7.xz | patch -p1
      ```
+     > Comentario: `$ xzcat ../patch-6.13.7 | patch -p1` 
+     ![alt text](image.png)
 
 3. **Pre-configuración del kernel**  
 
-   - a. Copiar la configuración actual del kernel:  
+   - a. Usaremos como base la configuración del kernel actual, esta configuración por convención se encuentra en el directorio /boot. Copiaremos y renombraremos la configuración actual al directorio del código fuente con el comando: 
      ```sh
      cp /boot/config-$(uname -r) $HOME/kernel/linux-6.13/.config
      ```
-   - b. Generar una configuración adecuada:  
+
+   - b. Generar una configuración adecuada para esta versión del kernel con `olddefconfig`. `olddefconfig` toma la configuración antigua que acabamos de copiar y la actualiza con valores por defecto para las opciones de configuración nuevas:  
      ```sh
      cd $HOME/kernel/linux-6.13
      make olddefconfig
      ```
-   - c. Configurar el kernel a medida:  
+   - c. A fin de configurar el kernel a medida para la máquina virtual usaremos a continuación `localmodconfig` que configura como módulos los módulos del kernel que se encuentran cargados en este momento deshabilitando los módulos no utilizados. Es probable que `make` pregunte por deterinadas opciones de configuración, si eso sucede presionaremos la tecla `Enter` en cada opción para que quede el valor por defecto hasta que `make` finalice:  
      ```sh
      make localmodconfig
      ```
 
-4. **Configuración personalizada del kernel**  
-
+4. **Configuración personalizada del kernel**. Utilizaremos la herramienta `menuconfig` para configurar otras opciones.
    - Ejecutar `menuconfig`:  
      ```sh
      make menuconfig
@@ -201,6 +204,54 @@ Optimiza la asignación de procesos a los núcleos del procesador, teniendo en c
      - *General setup* → *Configure standard kernel features (expert users)*  
      - *Kernel hacking* → *Kernel debugging*  
 
+![alt text](image-1.png)
+
 5. **Compilación del kernel**  
    ```sh
    make -jX
+   ```
+  Sea X la cantidad de procesadores. 
+
+6. Finalizado este proceso, debemos reubicar las nuevas imágenes en los directorios correspondientes, instalar los módulos, crear una imagen initramfs y reconfigurar nuestro gestor de arranque. En general todo esto se puede hacer de forma automatizada con los siguientes comandos:
+  ```sh
+  make modules_install
+  make install
+  ```
+
+7. Como último paso, a través del comando reboot, reiniciaremos nuestro equipo y probaremos el nuevo kernel recientemente compilado.
+  a. En el gestor de arranque veremos una nueva entrada que hace referencia al nuevo kernel. Para bootear, seleccionamos esta entrada y verificamos que el sistema funcione correctamente.
+  b. En caso de que el sistema no arranque con el nuevo kernel, podemos reiniciar el equipo y bootear con nuestro kernel anterior para corregir los errores y realizar una nueva compilación.
+  c. Para verificar qué kernel se está ejecutando en este momento puede usar el comando:
+  ```sh
+  $ uname -r
+  ```
+
+   ![alt text](image-2.png)
+
+
+## C - Poner a prueba el kernel compilado
+
+`btrfs.image.xz` es un archivo de 110MiB formateado con el filesystem **BTRFS** y luego comprimido con la herramienta **xz**. Dentro contiene un script que deberás ejecutar en una máquina con acceso a Internet (puede ser la máquina virtual provista por la cátedra) para realizar la entrega obligatoria de esta práctica.
+
+Para acceder al script deberás descomprimir este archivo y montarlo como si fuera un disco usando el driver **"Loopback device"** que habilitamos durante la compilación del kernel.
+
+## Usando el kernel 6.13.7 compilado en esta práctica:
+
+1. **Descomprimir el filesystem con:**
+   ```bash
+   unxz btrfs.image.xz
+   ```
+
+2. **Verificar que dentro del directorio `/mnt` exista al menos un directorio donde podamos montar nuestro pseudo dispositivo.**  
+   Si no existe el directorio, crearlo. Por ejemplo, podemos crear el directorio `/mnt/btrfs/`.
+
+3. **Montar el dispositivo utilizando los siguientes comandos:**
+   ```bash
+   su -
+   mount -t btrfs -o loop $HOME/btrfs.image /mnt/btrfs/
+   ```
+
+4. **Dirigirse a `/mnt/btrfs` y verificar el contenido del archivo `README.md`.**
+
+
+![alt text](image-3.png)
