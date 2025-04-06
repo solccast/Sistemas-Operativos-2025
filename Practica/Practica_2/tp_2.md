@@ -236,6 +236,134 @@ Como el rol del `initframs` es peritir que es preparar lo mínimo necesario para
 ### Práctica guiada 
 
 #### Desarrollo de un módulo simple
+1. Crear el archivo memory.c con el siguiente contenido:
+```c
+#include <linux/module.h>
+
+MODULE_LICENSE("Dual BSD/GPL");
+``` 
+2. Crear el archivo Makefile con el siguiente contenido:
+```bash
+obj-m := memory.o //
+``` 
+Responder: 
+- Explique brevemente cual es la utilidad del archivo `Makefile`.
+    Sirve para compilar el módulo.  
+- ¿Para qué sirve la macro MODULE_LICENSE? ¿Es obligatoria? 
+    Se usa para indicar la licencia bajo la cual se distribuye el módulo. No es obligatoria pero es recomendable incluirla para evitar problemas legales y de compatibilidad con el kernel.
+
+3. Compilar el módulo usando el mismo kernel en que correrá el mismo, utilizaremos el que instalaos en el primer paso del ejercicio guiado. 
+```bash
+make -C <KERNEL_CODE> M=$(pwd) modules //En KERNEL_CODE se debe poner la ruta del kernel que se descargo.
+``` 
+a. ¿Cuál es la salida del comando anterior?
+```bash
+root@so:/home/so/practica2# make -C /home/so/kernel/linux-6.13  M=$(pwd) modules
+make: se entra en el directorio '/home/so/kernel/linux-6.13'
+make[1]: se entra en el directorio '/home/so/practica2'
+  CC [M]  memory.o
+  MODPOST Module.symvers
+  CC [M]  memory.mod.o
+  CC [M]  .module-common.o
+  LD [M]  memory.ko
+make[1]: se sale del directorio '/home/so/practica2'
+make: se sale del directorio '/home/so/kernel/linux-6.13'
+```
+
+b. ¿Qué tipos de archivo se generan? Explique para qué sirve cada uno.
+Se generaron los siguientes archivos: 
+- `memory.o`: es el objeto del módulo compilado. Contiene el código máquina del módulo.
+- `memory.mod.o`: contiene información adicional sobre el módulo, como su nombre, versión y dependencias.
+- `memory.ko`: es el módulo del kernel compilado (kernel object). Es el archivo que se carga en el kernel para usar la funcionalidad del módulo.
+
+c. Con lo visto en la Práctica 1 sobre Makefiles, construya un Makefile de manera que
+si ejecuto
+    i. `make`, nuestro módulo se compila
+    ii. `make clean`, limpia el módulo y el código objeto generado
+    iii. `make run`, ejecuta el programa
+
+
+4. El paso que resta es agregar y eventualmente quitar nuestro módulo al kernel en tiempo de ejecución.
+Ejecutamos:
+```bash	
+insmod memory.ko
+```
+Responda lo siguiente: ¿Para qué sirven el comando insmod y el comando modprobe? ¿En qué se diferencian?
+    Tanto `insmod` como `modprobe` se utilizan para cargar módulos en el kernel.
+    - `insmod`: carga un módulo específico en el kernel. No resuelve dependencias automáticamente, por lo que si el módulo requiere otros módulos, deben ser cargados manualmente primero.
+    - `modprobe`: carga un módulo y resuelve automáticamente las dependencias necesarias. Si el módulo requiere otros módulos, `modprobe` los carga en el orden correcto. Es más conveniente para manejar módulos con dependencias.
+
+5. Verificamos que el módulo se haya cargado correctamente:
+```bash
+lsmod | grep memory
+```
+Salida: 
+```bash
+root@so:/home/so/practica2# lsmod | grep memory
+memory                  8192  0
+```
+a. ¿Cuál es la salida del comando? Explique cuál es la utilidad del comando lsmod.
+Indica que el módulo `memory` se ha cargado correctamente en el kernel.
+`lsmod` muestra una lista de todos los módulos del kernel que están actualmente cargados en el sistema. Proporciona información sobre el nombre del módulo, su tamaño y cuántas veces está siendo utilizado (número de referencias).
+
+b. ¿Qué información encuentra en el archivo `/proc/modules`?
+Es un archivo virtual del sistema, que contiene información en tiempo real sobre los módulos cargados, es la fuente directa de donde `lsmod` obtiene la información y la formatea.
+
+c. Si ejecutamos `more /proc/modules` encontramos los siguientes fragmentos ¿Qué información obtenemos de aquí?:
+```bash
+memory 8192 0 - Live 0x0000000000000000 (OE)
+binfmt_misc 24576 1 - Live 0x0000000000000000
+intel_rapl_msr 16384 0 - Live 0x0000000000000000
+intel_rapl_common 32768 1 intel_rapl_msr, Live 0x0000000000000000
+
+```
+De los fragmentos se puede ver el nombre del módulo, su tamaño, el número de referencias (0 significa que no hay otros módulos que dependan de él), y el estado del módulo (Live indica que está activo). También se puede ver la dirección de memoria donde está cargado el módulo.
+
+d. ¿Con qué comando descargamos el módulo de la memoria?
+```bash
+rmmod memory
+```
+
+6. Descargue el módulo memory. Para corroborar ejecute: 
+```bash
+lsmod | grep memory
+```
+7. Modifique el archivo memory.c:
+```c	
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h> 
+MODULE_LICENSE("Dual BSD/GPL");
+
+static int hello_init(void) {
+    printk(KERN_INFO "Hello, world!\n");
+    return 0;
+}
+
+static void hello_exit(void) {
+    printk("Bye, cruel world!\n");
+}
+
+module_init(hello_init);
+module_exit(hello_exit);
+```
+- Cargar el modulo, ejecutar `dmesg`, descargar el modulo y ejecutar `dmesg` nuevamente. ¿Qué diferencias encuentra?
+![alt text](image-10.png)
+
+8. Responder:
+a. ¿Para qué sirve la función module_init? ¿Y module_exit? ¿Cómo haría para ver la información del log que arrojan las mismas?
+`module_init` se usa para indicar la función que se ejecutará cuando el módulo se cargue en el kernel. `module_exit` indica la función que se ejecutará cuando el módulo se descargue del kernel. 
+Para ver la información del log que arrojan se puede usar `dmesg` o `cat /var/log/kern.log`. 
+
+b. Hasta aquí hemos desarrollado, compilado, cargado y descargado un módulo en nuestro kernel. En este punto y sin mirar lo que sigue. ¿Qué nos falta para tener un driver completo?.
+Para tener un driver completo faltaría:
+- Implementar la lógica específica del hardware que se va a controlar.
+- Manejar la comunicación entre el kernel y el hardware (lectura/escritura de datos).
+
+c. Clasifique los tipos de dispositivos en Linux. Explique las características de cada uno.
+Se clasifican en:
+- **Dispositivos de bloque**: permiten acceso aleatorio a bloques de datos. Ej: discos duros, pendrives. Se accede a ellos mediante bloques de tamaño fijo.
+- **Dispositivos de carácter**: permiten acceso secuencial a datos. Ej: teclados, mouse. Se accede a ellos byte por byte y 1 byte solo puede ser leído por unica vez.
 
 #### Desarrollo de un driver
 
