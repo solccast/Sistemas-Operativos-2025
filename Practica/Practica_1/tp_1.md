@@ -30,6 +30,17 @@ y luego para compilar el programa, que ejecutará la primera regla y sus depende
 make
 ```
 
+**Estructura de una regla**
+```makefile
+target: dependencies
+	[TAB] command
+```
+🔹 `target`: Es el objetivo que querés construir. Puede ser: el nombre de un archivo que se va a generar (por ejemplo, un ejecutable como main, o un archivo .o) o puede ser un alias para un conjunto de comandos, como clean, all, run, etc.
+
+🔹 `dependencies` (dependencias): son los archivos que el target necesita para construirse. Si alguno cambia, se ejecutan los comandos.
+
+🔹 `command`: es el o los comandos de shell que se ejecutan para construir el target.
+
 3. La carpeta `/home/so/practica1/ejemplos/01-make` de la VM contiene ejemplos de uso de `make`. Analice los ejemplos, en cada caso ejecute `make` y luego `make run` (es opcional ejecutar el ejemplo 4, el mismo requiere otras dependencias que no vienen preinstaladas en la VM):  
    - a. Vuelva a ejecutar el comando `make`. ¿Se volvieron a compilar los programas? ¿Por qué?  
    - b. Cambie la fecha de modificación de un archivo con el comando `touch` o editando el archivo y ejecute `make`. ¿Se volvieron a compilar los programas? ¿Por qué?  
