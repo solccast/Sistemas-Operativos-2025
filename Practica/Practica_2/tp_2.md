@@ -52,9 +52,9 @@ Se usa de la siguiente forma:
 - consultar el nombre de syscall a partir de número,
 - usarlo para escribir reglas de auditoría con `auditctl` o analizar logs de `auditd`.
 
-## Práctica guiada
+### Práctica guiada
 
-### Agregamos una nueva System Call
+#### Agregamos una nueva System Call
 
 1. Código de `my_sys_call.c`
 ● **Para qué sirven los macros SYS_CALL_DEFINE?**
@@ -125,7 +125,7 @@ grep get_task_info "/boot/System.map-$(uname -r)"
 	        rm -f prueba_syscall 
 ```
 
-### Monitoreando System Calls 
+#### Monitoreando System Calls 
 1. Ejecuta el programa anteriormente compilado 
 ```
 ./get_task_info
@@ -154,5 +154,89 @@ strace ./prueba_syscall
 ```
 La salida se encuentra en [salida.txt](https://github.com/solccast/kernel-vm-personal/commit/3f07c7be0ad03a59e7d0c42b40b7e5a0c202464d) , línea 30. Al ejecutar el echo nos sale el número de system call que se ejecutó 
 ![alt text](image-8.png)
+
+
+## Módulos y Drivers 
+
+### Conceptos generales
+
+1. ¿Cómo se denomina en GNU/Linux a la porción de código que se agrega al kernel en tiempo de ejecución? ¿Es necesario reiniciar el sistema al cargarlo? Si no se pudiera utilizar esto ¿cómo deberíamos hacer para proveer la misma funcionalidad en GNU/Linux?
+Se denomina **módulo del kernel** o **kernel Module**. Suelen tener extensión `.ko` (kernel object). 
+Pueden cargarse y descargarse en tiempo de ejecución. 
+```bash
+sudo insmod mi_modulo.ko     # Carga el módulo
+sudo rmmod mi_modulo         # Lo descarga
+```
+En caso de que el kernel no admitiera módulos (monolítico sin soporte de carga dinámica) la forma de agregar más funcionalidad sería así: 
+    1. Agregar el código directamente al kernel fuente.
+    2. Recompilar el kernel completo.
+    3. Reiniciar el sistema. 
+
+2. ¿Qué es un driver? ¿Para qué se utiliza?
+Un **driver** es un módulo o programa que le dice al sistema operativo cómo interactuar con un hardware específico. Sirve para que el sistema pueda usar hardware de forma genérica, sin tener que saber cómo funciona internamente. 
+Se pueden cargar con `modprobe`. 
+Aparecen en `/lib/modules$(uname -r)/`
+
+3. ¿Por qué es necesario escribir drivers?
+Dado que cada dispositivo es diferente y tiene su propia forma de funcionar el sistema operativo no puede incluir soporte nativo para todos los dispositivos. A parte, favorece al aislamiento y modularidad ya que separan el código del sistema operativo del manejo específico del hardware. 
+Un drive generalmente está implementado como módulo del kernel pero también puede formar parte del núcleo desde el arranque (incluido directamente en el archivo `vmlinuz`)
+
+4. ¿Cuál es la relación entre módulo y driver en GNU/Linux?
+Un driver es el software que permite al sistema operativo comunicarse con un dispositivo (como una impresora, tarjeta de red, USB, etc). 
+Un módulo es una forma de cargar ese driver en el kernel dinámicamente, en tiempo de ejecución.
+Entonces:  Un driver puede estar implementado como un módulo del kernel.
+5. ¿Qué implicancias puede tener un bug en un driver o módulo?
+Debe tenerse en cuenta un driver corre en el espacio del **modo privilegiado** o **modo kernel** por lo tanto no hay protección de memoria, tienen acceso total a todos los recursos del sistema. 
+Puede implicar:
+- Bloqueo del sistema (kernel panic)
+- Caída del rendimiento
+- Corrupción de meoria o datos
+- Vulnerabilidades de seguridad 
+
+6. ¿Qué tipos de drivers existen en GNU/Linux?
+
+|Tipos de drivers| Detalle|
+| -- | -- | 
+| de dispositivos (device drivers) | controlan dispositivos físicos | 
+| de pseudo-dispositivos (virtuales) | emulan dispositivos. Ej: `/dev/null` descarta todo lo que se escribe en él; `/dev/zero` devuelve una secuencia infinita de ceros; `ramdisk` usa memoria RAM como si fuera un disco. |
+| de sistema de archivos | manejan como se leen/escriben datos en distintos sistemas de archivos | 
+| de bus | controlan como se comunican los dispositivos conectados mediante buses. Ej: `usbcore` para USB; `pci_generic` para PCI. |
+| de virtualización / hypervisores | permiten que Linux corra sobre o dentro de máquinas virtuales | 
+| de energía / sensores | controlan funciones como la administración de energía, de ventiladores, de temperatura. |
+
+7. ¿Qué hay en el directorio /dev? ¿Qué tipos de archivo encontramos en esa ubicación?
+Contiene archivos de dispositivos. Son interfaces entre el sistema operativo y los dispositivos. 
+Hay dos tipos principales de archivos de dispositivo: 
+- **Archivos de dispositivo de carácter (chardevice) - c**: transfieren datos byte a byte (como un flujo). Ej: teclados, mouse, puertos serie.
+- **Archivos de dispositivo de bloque (block device) - b**: transfieren datos por bloques con acceso aleatorio. Ej: discos, pendrives.
+
+
+8. ¿Para qué sirven el archivo `/lib/modules/<version>/modules.dep` utilizado por el comando `modprobe`?
+Es un archivo de dependneicas que mantiene una listade qué módulos del kernel dependen de otros. 
+Cuando se quiere cargar un módulo con: 
+```bash
+modprobe nombre_modulo
+```
+`modprobe`: consulta `modules.dep`, ve si ese módulo necesita otros módulos para funcionar y en caso de que así sea, carga todas las dependencias en el orden correcto.  
+
+9. ¿En qué momento/s se genera o actualiza un `initramfs`?
+`initframs` es iun archivo comprimido que contiene un pequeño sistema de archivos usado temporalmente durante el arranque del sistema y se almacena en `/boot/initrd-img-<version>`.
+Se genera o actualiza:
+- al instalar o actualizar el kernel
+- al instalar nuevos módulos (necesarios para el arranque) del kernel
+- al modificar configuraciones relacionadas al arranque 
+
+10. ¿Qué módulos y drivers deberá tener un `initramfs` mínimamente para cumplir su objetivo?
+Como el rol del `initframs` es peritir que es preparar lo mínimo necesario para que el sistema pueda montar y pasarle el control al sistema operativo entonces mínimamente el arranque del sistema deberá incluir los siguientes módulos: 
+- drivers de almacenamiento: permitir acceder al disco físico donde está el sistema. 
+- drivers de sistema de archivos: permiten montar el sistema de archivos raíz (`/`) como ext4, btrfs, vfat. 
+- módulos del bus del sistema: para reconocer el hardware al que están conectados los discos. 
+![alt text](image-9.png) _Módulos actuales del sistema_ 
+
+### Práctica guiada 
+
+#### Desarrollo de un módulo simple
+
+#### Desarrollo de un driver
 
 [^1]: https://www.ibm.com/docs/es/aix/7.3?topic=concepts-kernel-environment#kernextc_kern_env
