@@ -54,6 +54,8 @@ Se usa de la siguiente forma:
 
 ## Práctica guiada
 
+### Agregamos una nueva System Call
+
 1. Código de `my_sys_call.c`
 ● **Para qué sirven los macros SYS_CALL_DEFINE?**
 Se utiliza para definir nuevas llamadas al sistema dentro del kernel. Estos macros generan la función correcta con el nombre esperado por el sistema para poder invocarla desde espacio de usuario. 
@@ -112,5 +114,45 @@ grep get_task_info "/boot/System.map-$(uname -r)"
 
 6. Creación del script que pone a prueba la ejecución de la System Call 
 ![alt text](image-5.png)
+
+**Makefile**:
+ ```bash
+        init: prueba_syscall.c
+	        gcc -o prueba_syscall prueba_syscall.c 
+        run: prueba_syscall
+	        ./prueba_syscall
+        clean:
+	        rm -f prueba_syscall 
+```
+
+### Monitoreando System Calls 
+1. Ejecuta el programa anteriormente compilado 
+```
+./get_task_info
+```
+2. Ejecute 
+```
+sudo dmesg
+```
+![alt text](image-6.png)
+![alt text](image-7.png)
+
+`dmesg` muestra mensajes del kernel de Linux, del ring buffer (buffer circular: estructura de datos que tiene un tamaño fijo, cuando llega al final, vuelve al inicio y empieza a sobreescribir los datos más antiguos).
+El output son mensajes generados por el kernel. Cada línea normalmente tiene este formato:
+```cpp
+[ 123.456789] usb 1-1: new high-speed USB device number 4 using ehci-pci
+```
+Explicación:
+- `[ 123.456789]` → Tiempo desde que se encendió el sistema (uptime en segundos).
+- `usb 1-1`: → El componente del sistema que generó el mensaje (en este caso, el controlador USB).
+- `new high-speed USB device... `→ Descripción del evento (acá, detectó un nuevo dispositivo USB).
+
+3. Ejecute el programa anterior con la siguiente herramienta:`
+```bash
+#En mi caso el programa se llama de esta forma 
+strace ./prueba_syscall
+```
+La salida se encuentra en [salida.txt](https://github.com/solccast/kernel-vm-personal/commit/3f07c7be0ad03a59e7d0c42b40b7e5a0c202464d) , línea 30. Al ejecutar el echo nos sale el número de system call que se ejecutó 
+![alt text](image-8.png)
 
 [^1]: https://www.ibm.com/docs/es/aix/7.3?topic=concepts-kernel-environment#kernextc_kern_env
