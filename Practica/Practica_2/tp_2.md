@@ -366,5 +366,106 @@ Se clasifican en:
 - **Dispositivos de carácter**: permiten acceso secuencial a datos. Ej: teclados, mouse. Se accede a ellos byte por byte y 1 byte solo puede ser leído por unica vez.
 
 #### Desarrollo de un driver
+Ahora completamos nuestro módulo para agregarle la capacidad de escribir y leer un
+dispositivo. En nuestro caso el dispositivo a leer será la memoria de nuestra CPU, pero podría ser
+cualquier otro dispositivo.
+
+> El major number identifica qué driver del kernel maneja un determinado dispositivo. Cuando se accede a un archivo en /dev, el kernel usa el número mayor para saber a qué driver llamar.
+
+1. Modifique el archivo memory.c para que tenga el siguiente código:
+https://gitlab.com/unlp-so/codigo-para-practicas/-/blob/main/practica2/crear_driver/1_memory.c
+
+2. Responder:
+a. ¿Para qué sirve la estructura ssize_t y memory_fops? ¿Y las funciones
+register_chrdev y unregister_chrdev?
+`ssize_t` es un tipo de dato entero con signo. Se utiliza para representar el tamaño de un objeto en bytes leídos o escritos exitosamente (valor positivo) o un código de error (valor negativo). En el código se usa: si la función `memory_read()` devuelve 1, significa que leyó 1 byte, en cambio si devuelve -EFAULT, hubo un error de acceso a memoria del usuario.
+`memory_fops` es una estructura del kernel que define las funciones que implementa el driver para operaciones comunes de archivos. En el caso del código se definen las operaciones y se le pasan las funciones que se implementaron. 
+
+Las funciones `register_chrdev` y `unregister_chrdev` se utilizan para registrar y anular el registro de un controlador de caracteres (character device driver) en el kernel. 
+- `register_chrdev`: registra un dispositivo de caracteres con un numero mayor. Le da un nombre y las funciones que se usarán para manejar las operaciones de lectura y escritura.
+- `unregister_chrdev`: anula el registro del dispositivo de caracteres. Limpio todo cuando el módulo se remueve (rmmod).
+
+b. ¿Cómo sabe el kernel que funciones del driver invocar para leer y escribir al
+dispositivo?
+Lo sabe por la estructura `file_operations` que se le pasa a `register_chrdev`. Esta estructura contiene punteros a las funciones que implementan las operaciones. 
+
+c. ¿Cómo se accede desde el espacio de usuario a los dispositivos en Linux?
+Los dispositivos se acceden a través de archivos especiales ubicados en `/dev`. Estos archivos representan los dispositivos y permiten interactuar con ellos como si fueran archivos normales. Por ejemplo, desde el espacio de usuario se puede usar `open()` para abrir un archivo de dispositivo y su equivalente en bash sería `cat`, `echo`, etc.  
+
+d. ¿Cómo se asocia el módulo que implementa nuestro driver con el dispositivo?
+Se da en `register_chrdev`. Se le pasa el número mayor y el nombre del dispositivo. El kernel asocia el número mayor con el módulo que implementa el driver. Cuando se accede al dispositivo, el kernel usa este número para invocar las funciones definidas en `memory_fops`. Luego se crean un archivo en `/dev` con el nombre del dispositivo. 
+```bash
+mknod /dev/memory c <major_number> 0
+```
+Con `unregister_chrdev` se desasocia el módulo del dispositivo.
+
+
+e. ¿Qué hacen las funciones `copy_to_user` y `copy_from_user`?
+(https://developer.ibm.com/articles/l-kernel-memory-access/) [^2].
+- `copy_to_user`: se encarga de copiar datos desde el espacio del kernel al espacio de usuario. 
+- `copy_from_user`: se encarga de copiar datos desde el espacio de usuario al espacio del kernel.
+Ambas funciones son necesarias porque el kernel y el espacio de usuario tienen diferentes espacios de memoria y no pueden acceder directamente a los datos del otro. Estas funciones manejan la transferencia de datos entre ambos espacios de manera segura, verificando permisos y evitando accesos no autorizados.
+
+3. Ejecutar:
+```bash
+mknod /dev/memory c 60 0
+``` 
+4. Ejecutar: 
+```bash
+insmod memory.ko
+```
+Responder: 
+a. ¿Para qué sirve el comando `mknod`? ¿qué especifican cada uno de sus parámetros?
+Sirve para crear archivos de dispositivo en `/dev`.
+```bash
+mknod [ruta] [tipo] [mayor] [menor]
+```
+- **ruta**: ruta donde se creará el archivo de dispositivo (ej: `/dev/memory`).
+- **tipo**: tipo de dispositivo (c para carácter, b para bloque).
+- **mayor**: número mayor del dispositivo (identifica el driver que maneja el dispositivo).
+- **menor**: número menor del dispositivo (identifica una instancia específica del dispositivo manejado por el driver).
+
+b. ¿Qué son el "major number" y el "minor number"?
+El **major number** (número mayor) es un identificador único que asigna el kernel a un driver específico. Indica qué driver manejará el dispositivo.
+El **minor number** (número menor) es un identificador que permite distinguir entre diferentes instancias de un mismo dispositivo manejado por el mismo driver. Por ejemplo, si hay dos discos duros manejados por el mismo driver, cada uno tendrá un número menor diferente.
+
+5. Ejecutar:
+```bash
+echo -n abcdef > /dev/memory
+``` 
+6. Ejecutar:
+```bash
+more /dev/memory
+```
+![alt text](image-11.png) _Ejecutamos el Makefile, seguimos los pasos indicados. Se puede ver que al ser declados como dispositivo por caracter lo que queda en el buffer es el último char escrito. En caso de ser bloque, quedaría el bloque completo._
+
+7. Responder:
+a. ¿Qué salida tiene el anterior comando?, ¿Porque? (ayuda: siga la ejecución de las funciones memory_read y memory_write y verifique con dmesg)
+```bash
+[ 6086.806185] memory_write()
+[ 6086.806195] memory_write()
+[ 6086.806197] memory_write()
+[ 6086.806200] memory_write()
+[ 6086.806203] memory_write()
+[ 6086.806205] memory_write()
+[ 6096.584641] memory_read()
+[ 6096.584918] memory_read()
+```
+La salida es `f` porque el driver está implementado para que solo se guarde el último byte escrito en el buffer. Notar que la función `memory_write` se invoca 6 veces, una por cada byte escrito. 
+
+b. ¿Cuántas invocaciones a memory_write se realizaron?
+Se realizaron 6. 
+c. ¿Cuál es el efecto del comando anterior? ¿Por qué?
+El efecto es que se escriben los bytes `abcdef` en el buffer del driver. Pero como el driver está implementado para guardar solo el último byte, al final solo queda `f` en el buffer.
+
+d. Hasta aquí hemos desarrollado un ejemplo de un driver muy simple pero de manera completa, en nuestro caso hemos escrito y leído desde un dispositivo que en este caso es la propia memoria de nuestro equipo. En el caso de un driver que lee un dispositivo como puede ser un file system, un dispositivo usb, etc. ¿Qué otros aspectos deberíamos considerar que aquí hemos omitido? ayuda: semáforos, ioctl, inb, outb.
+
+Se deben considerar aspectos como:
+- Manejo de concurrencia: usar semáforos o mutex para evitar condiciones de carrera al acceder a recursos compartidos.
+- Implementar funciones `ioctl` para manejar operaciones de entrada/salida específicas del dispositivo.
+- Manejo de interrupciones: usar `inb` y `outb` para leer y escribir directamente en puertos de hardware.
+- Manejo de errores: verificar errores en las operaciones de lectura/escritura y devolver códigos de error apropiados.
+
 
 [^1]: https://www.ibm.com/docs/es/aix/7.3?topic=concepts-kernel-environment#kernextc_kern_env
+[^2]: Modifiqué el link original. El contenido se encuentra archivado. Deprecado. 
