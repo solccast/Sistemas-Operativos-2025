@@ -351,7 +351,7 @@ module_exit(hello_exit);
 ![alt text](image-10.png)
 
 8. Responder:
-a. ¿Para qué sirve la función module_init? ¿Y module_exit? ¿Cómo haría para ver la información del log que arrojan las mismas?
+a. ¿Para qué sirve la función `module_init`? ¿Y `module_exit`? ¿Cómo haría para ver la información del log que arrojan las mismas?
 `module_init` se usa para indicar la función que se ejecutará cuando el módulo se cargue en el kernel. `module_exit` indica la función que se ejecutará cuando el módulo se descargue del kernel. 
 Para ver la información del log que arrojan se puede usar `dmesg` o `cat /var/log/kern.log`. 
 
