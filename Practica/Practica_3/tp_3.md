@@ -101,26 +101,35 @@ Es necesario sincronizar tanto en KLT como en ULT si es que acceden a recursos c
     Al ejecutar `pthread_create()` se hace una llamada al sistema (`clone()`) que permite crear un nuevo hilo. Esta syscall permite especificar qué recursos se comparten. El kernel crea una nueva estructura de hilo (`task_struct`). 
 
 10. **User Level Threads**
-    a. ¿Por qué los ULTs no se pueden ejecutar en paralelo sobre múltiples núcleos?
-    No se pueden ejecutar porque en paralelo porque el SO desconoce la existencia de estos hilos por lo tanto solo uno puede ejecutarse a la vez. 
-> No hay paralelismo real, solo concurrencia cooperativa dentro de un solo núcleo. 
+a. ¿Por qué los ULTs no se pueden ejecutar en paralelo sobre múltiples núcleos?
+No se pueden ejecutar porque en paralelo porque el SO desconoce la existencia de estos hilos por lo tanto solo uno puede ejecutarse a la vez. 
+
 
 b. ¿Qué ventajas tiene el uso de ULTs respecto de los KLTs?
-Se hizo enfásis en las ventajas en puntos anteriores, sin embargo como resumen tenemos que ULTs tiene como ventaja por sobre KLTs:
-- Menor overhead
-- Portabilidad
-- Mayor control de planificación
-- Cambio de contexto más rápido
+        Se hizo enfásis en las ventajas en puntos anteriores, sin embargo como resumen tenemos que ULTs tiene como ventaja por sobre KLTs:
+            - Menor overhead
+            - Portabilidad
+            - Mayor control de planificación
+            - Cambio de contexto más rápido
 
 c. ¿Qué relaciones hay entre `getpid()`, `gettid()` y `pth_self()` (en GNU Pth)?
 
 d. ¿Qué pasaría si un ULT realiza una syscall bloqueante como `read()`?
-Todo el proceso se bloquea. Como mencioné antes, el kernel desconoce la existencia de estos hilos entonces ve a todos estos como un proceso por lo que el resto de ULTs se quedan esperando. 
+        Todo el proceso se bloquea. Como mencioné antes, el kernel desconoce la existencia de estos hilos entonces ve a todos estos como un proceso por lo que el resto de ULTs se quedan esperando. 
 e. ¿Qué tipos de scheduling pueden tener los ULTs? ¿Cuál es el más común?
-Los más comunes:
-- Cooperativo: los hilos ceden voluntariamente el control.
-- Round Robin: turno fijo acada hilo en orden.
-- Por prioridades
+    Los más comunes:
+        - Cooperativo: los hilos ceden voluntariamente el control.
+        - Round Robin: turno fijo acada hilo en orden.
+        - Por prioridades
+
+> No hay paralelismo real, solo concurrencia cooperativa dentro de un solo núcleo. 
+
+11. **Global Interpreter Lock**
+a. ¿Qué es el GIL (Global Interpreter Lock)? ¿Qué impacto tiene sobre programas multi-thread en Python y Ruby?
+El GIL se refiere al mecanismo interno de control que garantiza que solo un hilo de ejecución acceda a objetos en un momento dado. Previene las _race conditions_. En conclusión, permite que **solo un hijo ejecute bytecode a la vez** en el intérprete. [^5]
+
+b. ¿Por qué en CPython o MRI se recomienda usar procesos en vez de hilos para tareas intensivas en CPU?
+Porque los hilos están limitados por el GIL así que no pueden correr en paralelo real, en cambio cada proceso tiene su propio intérprete y su propio GIL por lo que pueden ejecutarse en simultáneo. 
 
 ### Práctica guiada 
 
@@ -129,3 +138,4 @@ Los más comunes:
 [^2]: https://www.ibm.com/docs/es/aix/7.2?topic=p-pthread-self-subroutine
 [^3]: https://www.gnu.org/software/pth/pth-manual.html
 [^4]: https://www.geeksforgeeks.org/copy-on-write/
+[^5]: https://wiki.python.org/moin/GlobalInterpreterLock
