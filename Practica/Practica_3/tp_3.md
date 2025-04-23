@@ -127,12 +127,191 @@ e. ¿Qué tipos de scheduling pueden tener los ULTs? ¿Cuál es el más común?
 11. **Global Interpreter Lock**
 a. ¿Qué es el GIL (Global Interpreter Lock)? ¿Qué impacto tiene sobre programas multi-thread en Python y Ruby?
 El GIL se refiere al mecanismo interno de control que garantiza que solo un hilo de ejecución acceda a objetos en un momento dado. Previene las _race conditions_. En conclusión, permite que **solo un hijo ejecute bytecode a la vez** en el intérprete. [^5]
-
 b. ¿Por qué en CPython o MRI se recomienda usar procesos en vez de hilos para tareas intensivas en CPU?
 Porque los hilos están limitados por el GIL así que no pueden correr en paralelo real, en cambio cada proceso tiene su propio intérprete y su propio GIL por lo que pueden ejecutarse en simultáneo. 
 
 ### Práctica guiada 
 
+1. Instale las dependencias necesarias para la práctica (strace, git, gcc, make, libc6-dev,
+libpth-dev, python3, htop y podman):
+```bash
+apt update
+apt install build-essential libpth-dev python3 python3-venvstrace git htop podman
+
+```
+
+2. Clone el repositorio con el código a usar en la práctica
+```bash
+git clone https://gitlab.com/unlp-so/codigo-para-practicas.git
+```
+
+3. Resuelva y responda utilizando el contenido del directorio `practica3/01-strace`:
+a. Compile los 3 programas C usando el comando `make`.
+
+b. Ejecute cada programa individualmente, observe las diferencias y similitudes del PID y THREAD_ID en cada caso. Conteste en qué mecanismo de concurrencia las distintas tareas:
+i. Comparten el mismo PID y THREAD_ID
+ii. Comparten el mismo PID pero con diferente THREAD_ID
+iii. Tienen distinto PID
+
+**Ejecución:**
+`01-subprocess`: Tienen diferente PID  -> `fork()`: crea un nuevo proceso pero no un hilo. 
+```bash
+Parent process: PID = 4165, THREAD_ID = 4165
+Child process: PID = 4166, THREAD_ID = 4166
+```
+`02-kl-thread`: Comparten el mismo PID pero con diferente THREAD_ID -> klt
+```bash
+Parent process: PID = 4204, THREAD_ID = 4204
+Child thread: PID = 4204, THREAD_ID = 4205
+```
+`03-ul-thread`: Comparten el mismo PID y THREAD_ID -> ult
+```bash
+Parent process: PID = 4231, THREAD_ID = 4231, PTH_ID = 94182215788784
+Child thread: PID = 4231, THREAD_ID = 4231, PTH_ID = 94182215791328
+```
+
+c. Ejecute cada programa usando strace (`strace ./nombre_programa > /dev/null)` y responda:
+i. ¿En qué casos se invoca a la systemcall `clone` o `clone3` y en cuál no? ¿Por qué?
+Se ejecuta en el primer caso, en el segundo también con `clone3` pero en el último no porque `clone()` es una syscall que lo atiende el kernel y el código muestra la creación de un ULT (en el espacio de usuario) entonces éste nuevo proceso hijo no es visible para el sistema operativo.
+
+ii. Observe los flags que se pasan al invocar a `clone` o `clone3` y verifique en qué caso se usan los flags `CLONE_THREAD` y `CLONE_VM`.
+- `CLONE_VM`: se usa en el caso que se busque compartir el espacio de memoria. Se usa en el caso del código 2.
+- `CLONE_THREAD`: también se usa en el código 2 ya que realmente se crean hilos, entonces ese flag indica que el proceso creado forma parte del mismo grupo de hilos del proceso padre (comparten PID). Convierte un proceso creado con clone en un hilo real (KLT)
+
+iii. Investigue qué significan los flags `CLONE_THREAD` y `CLONE_VM` usando la manpage de clone y explique cómo se relacionan con las diferencias entre procesos e hilos.
+
+```bash
+CLONE_THREAD (since Linux 2.4.0)
+    If  CLONE_THREAD  is  set,  the  child  is  placed  in  the  same  thread group as the calling process.  
+    The threads within a group can be distinguished by their (system-wide) unique thread IDs (TID).  A new thread's TID is available  as  the  function result returned to the caller, and a thread can obtain its own TID using gettid(2).
+
+CLONE_VM (since Linux 2.0)
+              If CLONE_VM is set, the calling process and the child process run in the same memory space.  In particular, memory writes performed by the  calling
+              process  or  by  the child process are also visible in the other process.  Moreover, any memory mapping or unmapping performed with mmap(2) or mun‐
+              map(2) by the child or calling process also affects the other process.
+
+              If CLONE_VM is not set, the child process runs in a separate copy of the memory space of the calling process at the time of the clone call.  Memory
+              writes or file mappings/unmappings performed by one of the processes do not affect the other, as with fork(2).
+```
+Característica | Proceso (fork) | Hilo (clone + flags)
+| -- | -- | -- |
+Memoria | Separada | Compartida (CLONE_VM)
+PID | Distinto | Igual (grupo de hilos) con CLONE_THREAD
+Archivos abiertos | Copia separada | Compartidos (CLONE_FILES)
+Señales | Independientes | Compartidas (CLONE_SIGHAND)
+
+iv. `printf()` eventualmente invoca la syscall write (con primer argumento 1, indicando que el file descriptor donde se escribirá el texto es STDOUT). Vea la salida de strace y verifique qué invocaciones a write(1, ...) ocurren en cada caso.
+- Caso `01-subprocess`: `write(1, "Parent process: PID = 6343, THRE"..., 45) = 45` 
+- Caso `02-kl-thread`: `write(1, "Parent process: PID = 6374, THRE"..., 88) = 88`
+- Caso `03-ul-thread`: `write(1, "Parent process: PID = 6461, THRE"..., 138) = 138` 
+En los tres casos se pasa como argumento la salida estándar. 
+
+v. Pruebe invocar de nuevo strace con la opción -f y vea qué sucede respecto a las invocaciones a write(1, …). Investigue qué es esa opción en la manpage de strace. ¿Por qué en el caso del ULT se puede ver la invocación a write(1, …) por parte del thread hijo aún sin usar -f?
+```bash
+       -f
+       --follow-forks
+                   Trace child processes as they are created by currently traced processes as a result of the fork(2), vfork(2) and clone(2) system calls.   Note
+                   that -p PID -f will attach all threads of process PID if it is multi-threaded, not only thread with thread_id = PID.
+```
+
+4. Resuelva y responda utilizando el contenido del directorio `practica3/02-memory`:
+a. Compile los 3 programas C usando el comando make.
+b. Ejecute los 3 programas.
+- `01-subprocess`:
+```bash
+Parent process: PID = 7281, THREAD_ID = 7281
+Parent process: number = 42
+Child process: PID = 7282, THREAD_ID = 7282
+Child process: number = 84
+Parent process: number = 42
+```
+- `02-kl-thread`:
+```bash
+Parent process: PID = 7325, THREAD_ID = 7325
+Parent process: number = 42
+Child thread: PID = 7325, THREAD_ID = 7326
+Child process: number = 84
+Parent process: number = 84
+```
+- `03-ul-thread`:
+```bash
+Parent process: PID = 7363, THREAD_ID = 7363, PTH_ID = 94282563832048
+Parent process: number = 42
+Child thread: PID = 7363, THREAD_ID = 7363, PTH_ID = 94282563834592
+Child thread: number = 84
+Parent process: number = 84
+```
+c. Observe qué pasa con la modificación a la variable number en cada caso. ¿Por qué
+suceden cosas distintas en cada caso?
+
+5. El directorio practica3/03-cpu-bound contiene programas en C y en Python que ejecutan
+una tarea CPU-Bound (calcular el enésimo número primo).
+a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los
+siguientes incisos.
+b. Ejecute los distintos ejemplos con make (usar make help para ver cómo) y observe
+cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa
+completo en finalizar.
+c. ¿Cuántos threads se crean en cada caso?
+d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y
+klt)?
+e. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python
+(ult.py y klt.py)?
+f. Modifique la cantidad de threads en los scripts Python con la variable
+NUM_THREADS para que en ambos casos se creen solamente 2 threads, vuelva a
+ejecutar y comparar los tiempos. ¿Nota algún cambio? ¿A qué se debe?
+g. ¿Qué conclusión puede sacar respecto a los ULT en tareas CPU-Bound?
+6. El directorio practica3/04-io-bound contiene programas en C y en Python que ejecutan una
+tarea que simula ser IO-Bound (tiene una llamada a sleep lo que permite interleaving de
+forma similar al uso de IO).
+a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los
+siguientes incisos.
+b. Ejecute los distintos ejemplos con make (usar make help para ver cómo) y observe
+cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa
+completo en finalizar.
+c. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y
+klt)?
+d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python
+(ult.py y klt.py)?
+e. ¿Qué conclusión puede sacar respecto a los ULT en tareas IO-Bound?
+7. Diríjase nuevamente en la terminal a practica3/03-cpu-bound y modifique klt.py de forma
+que vuelva a crear 5 threads.
+a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los
+siguientes incisos.
+b. Ejecute una versión de Python que tenga el GIL deshabilitado usando: `make
+run_klt_py_nogil` (esta operación tarda la primera vez ya que necesita descargar un
+container con una versión de Python compilada explícitamente con el GIL
+deshabilitado).
+c. ¿Cómo se comparan los tiempos de ejecución de klt.py usando la versión normal de
+Python en contraste con la versión sin GIL?
+d. ¿Qué conclusión puede sacar respecto a los KLT con el GIL de Python en tareas
+CPU-Bound?
+
+
+
+## Notaciones a tener en cuenta
+
+🔹 `fork()`
+- Crea un nuevo proceso (hijo) que es una copia casi exacta del proceso actual (padre).
+
+- Ambos procesos (padre e hijo) continúan ejecutándose desde la misma línea después del `fork()`.
+
+- El proceso hijo tiene su propio espacio de memoria, pero al principio se comparte (copy-on-write).
+
+📌 Uso típico: cuando se busca ejecutar otro programa desde el código, como con `exec()` después de `fork()`.
+
+🔹 `clone()`
+- Permite compartir partes del contexto entre el proceso padre e hijo, como memoria, archivos abiertos, pila, etc.
+
+- Se usa para crear hilos (threads) en Linux.
+
+- Es la base interna de cómo se implementan los hilos con `pthread_create()`.
+
+🔩 `CLONE_VM`
+- Hace que el hijo comparta el mismo espacio de direcciones (memoria) que el proceso padre. Es decir, las variables y estructuras en RAM son las mismas para ambos.
+
+🔗 `CLONE_THREAD`
+- Hace que el proceso hijo sea tratado como un hilo dentro del proceso padre. El hilo no aparece como un proceso independiente (no nuevo PID), sino como parte del mismo proceso.
+- Comparte recursos como el PID, archivos, señal de terminación, etc.
 
 [^1]: https://www.ibm.com/docs/es/aix/7.2?topic=g-getpid-getpgrp-getppid-subroutine 
 [^2]: https://www.ibm.com/docs/es/aix/7.2?topic=p-pthread-self-subroutine
