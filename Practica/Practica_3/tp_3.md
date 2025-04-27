@@ -241,37 +241,189 @@ Child thread: PID = 7363, THREAD_ID = 7363, PTH_ID = 94282563834592
 Child thread: number = 84
 Parent process: number = 84
 ```
-c. Observe qué pasa con la modificación a la variable number en cada caso. ¿Por qué
-suceden cosas distintas en cada caso?
+c. Observe qué pasa con la modificación a la variable number en cada caso. ¿Por qué suceden cosas distintas en cada caso?
+En el primer caso se usa `fork()`, esta syscall genera un proceso hijo con su propia copia del espacio de memoria (copy on write), entonces el proceso hijo al modificar la variable `number` solo estaría modificando su copia. 
+En el caso de `02-kl-thread` todos los hilos comparten el mismo espacio de direcciones (por las flags que se probaron anteriormente) entonces la modificación de la variable se propaga.
+En `03-ul-thread` ocurre lo mismo que en el caso anterior, todos los hilos viven en el mismo espacio de direcciones que el proceso padre entonces comparten la misma variable.  
 
-5. El directorio practica3/03-cpu-bound contiene programas en C y en Python que ejecutan
-una tarea CPU-Bound (calcular el enésimo número primo).
-a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los
-siguientes incisos.
-b. Ejecute los distintos ejemplos con make (usar make help para ver cómo) y observe
-cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa
-completo en finalizar.
+5. El directorio `practica3/03-cpu-bound` contiene programas en C y en Python que ejecutan una tarea CPU-Bound (calcular el enésimo número primo).
+a. Ejecute `htop` en una terminal separada para monitorear el uso de CPU en los siguientes incisos.
+b. Ejecute los distintos ejemplos con `make` (usar `make help` para ver cómo) y observe cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa completo en finalizar.
+```bash
+#En htop podemos observar como se generan los diferentes hilos y son vistos por el kernel
+# Todos los hilos ejecutan en paralelo
+make run_klt
+./klt
+Starting the program.
+[Thread 140430819923648] Doing some work...
+[Thread 140430786352832] Doing some work...
+[Thread 140430803138240] Doing some work...
+[Thread 140430811530944] Doing some work...
+[Thread 140430794745536] Doing some work...
+2500000th prime is 41161739
+[Thread 140430803138240] Done with work in 78.364010 seconds.
+2500000th prime is 41161739
+[Thread 140430811530944] Done with work in 78.490711 seconds.
+2500000th prime is 41161739
+[Thread 140430786352832] Done with work in 78.590463 seconds.
+2500000th prime is 41161739
+[Thread 140430794745536] Done with work in 78.677855 seconds.
+2500000th prime is 41161739
+[Thread 140430819923648] Done with work in 78.906294 seconds.
+All threads are done in 78.907328 seconds
+```
+
+```bash
+#En este caso es un único proceso el q ue se encarga de realizar la tarea (por más que en el código tengan hilos).. 
+# Los hijos se ejecutan de forma secuencial, es decir, cuando se termina de ejecutar un hilo, recién ejecuta el que sigue
+make run_ult
+./ult
+Starting the program.
+[Thread 94498693063392] Doing some work...
+2500000th prime is 41161739
+[Thread 94498693063392] Done with work in 72.567070 seconds.
+[Thread 94498693130448] Doing some work...
+2500000th prime is 41161739
+[Thread 94498693130448] Done with work in 72.515455 seconds.
+[Thread 94498693197504] Doing some work...
+2500000th prime is 41161739
+[Thread 94498693197504] Done with work in 72.503252 seconds.
+[Thread 94498693264560] Doing some work...
+2500000th prime is 41161739
+[Thread 94498693264560] Done with work in 72.192671 seconds.
+[Thread 94498693331616] Doing some work...
+2500000th prime is 41161739
+[Thread 94498693331616] Done with work in 72.551345 seconds.
+All threads are done in 362.000000 seconds
+```
+
+```bash
+klt.py
+Starting the program.
+[thread_id=139879133476544] Doing some work...
+[thread_id=139879125083840] Doing some work...
+[thread_id=139879116691136] Doing some work...
+[thread_id=139879108298432] Doing some work...
+[thread_id=139878897546944] Doing some work...
+500000th prime is 7368787
+[thread_id=139879133476544] Done with work in 173.45918536186218 seconds.
+500000th prime is 7368787
+[thread_id=139879108298432] Done with work in 196.6558837890625 seconds.
+500000th prime is 7368787
+[thread_id=139878897546944] Done with work in 198.90486216545105 seconds.
+500000th prime is 7368787
+[thread_id=139879125083840] Done with work in 203.6454701423645 seconds.
+500000th prime is 7368787
+[thread_id=139879116691136] Done with work in 209.52642345428467 seconds.
+All threads are done in 209.56584477424622 seconds
+```
+
+```bash
+make run_ult_py
+/home/so/practica3/codigo-para-practicas/practica3//.venv/bin/python3 ult.py
+Starting the program.
+[greenlet_id=139736566533952] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139736566533952] Done with work in 40.38596296310425 seconds.
+[greenlet_id=139736561222976] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139736561222976] Done with work in 40.13271951675415 seconds.
+[greenlet_id=139736566535872] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139736566535872] Done with work in 40.74720573425293 seconds.
+[greenlet_id=139736559249792] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139736559249792] Done with work in 40.73860716819763 seconds.
+[greenlet_id=139736559249952] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139736559249952] Done with work in 42.36141777038574 seconds.
+All greenlets are done in 204.38147354125977 seconds
+```
+
+```bash
+podman run -it --rm --network=none -v .:/mnt docker.io/felopez/python-nogil:latest python3 -X gil=0 /mnt/klt.py
+Starting the program.
+[thread_id=139881867241152] Doing some work...
+[thread_id=139881858848448] Doing some work...
+[thread_id=139881783228096] Doing some work...
+[thread_id=139881774835392] Doing some work...
+[thread_id=139881766442688] Doing some work...
+500000th prime is 7368787
+[thread_id=139881858848448] Done with work in 101.5588047504425 seconds.
+500000th prime is 7368787
+[thread_id=139881766442688] Done with work in 102.01845669746399 seconds.
+500000th prime is 7368787
+[thread_id=139881774835392] Done with work in 102.36085486412048 seconds.
+500000th prime is 7368787
+[thread_id=139881867241152] Done with work in 102.57131338119507 seconds.
+500000th prime is 7368787
+[thread_id=139881783228096] Done with work in 103.79608988761902 seconds.
+All threads are done in 103.83046793937683 seconds
+```
+
 c. ¿Cuántos threads se crean en cada caso?
-d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y
-klt)?
-e. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python
-(ult.py y klt.py)?
-f. Modifique la cantidad de threads en los scripts Python con la variable
-NUM_THREADS para que en ambos casos se creen solamente 2 threads, vuelva a
-ejecutar y comparar los tiempos. ¿Nota algún cambio? ¿A qué se debe?
+- `run_klt`: 5 hilos
+- `run_ult`: 5 hilos 
+- `run_klt_py`: 5 hilos 
+- `run_ult_py`: 5 hilos
+- `run_klt_py_nogil`: 5 hilos
+
+d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y klt)?
+Es notoria la diferencia, se nota el paralelismo del klt (se ve en `htop` los procesos hijos) a diferencia del ult en el que el kernel solo conoce a un proceso (padre).
+
+e. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python (ult.py y klt.py)?
+Es notoria la diferencia que existe entre klt normal y klt sin gil, es el que menos tarda, entonces los hilos pueden ejecutar código python en paralelo real. 
+En el caso del ULTs es que cooperan y cambiande contexteo voluntariamente. Sigue siendo secuencial pero este scheduler reduce el overhead. 
+
+f. Modifique la cantidad de threads en los scripts Python con la variable `NUM_THREADS` para que en ambos casos se creen solamente 2 threads, vuelva a ejecutar y comparar los tiempos. ¿Nota algún cambio? ¿A qué se debe?
+
+**`NUM_THEADS=2`**
+
+```bash
+#run_klt_py
+Starting the program.
+[thread_id=139967727396544] Doing some work...
+[thread_id=139967718987456] Doing some work...
+500000th prime is 7368787
+[thread_id=139967727396544] Done with work in 102.97450184822083 seconds.
+500000th prime is 7368787
+[thread_id=139967718987456] Done with work in 107.63996481895447 seconds.
+All threads are done in 107.64879822731018 seconds
+```
+
+```bash
+#run_klt_py_nogil
+Starting the program.
+[thread_id=140107864684224] Doing some work...
+[thread_id=140107856275136] Doing some work...
+500000th prime is 7368787
+[thread_id=140107856275136] Done with work in 80.93601560592651 seconds.
+500000th prime is 7368787
+[thread_id=140107864684224] Done with work in 81.51169872283936 seconds.
+All threads are done in 81.53668189048767 seconds
+```
+
+```bash
+#run_ult_py
+Starting the program.
+[greenlet_id=139923894636352] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139923894636352] Done with work in 114.9283766746521 seconds.
+[greenlet_id=139923889325376] Doing some work...
+500000th prime is 7368787
+[greenlet_id=139923889325376] Done with work in 108.96440649032593 seconds.
+All greenlets are done in 223.96445417404175 seconds
+```
+
+
 g. ¿Qué conclusión puede sacar respecto a los ULT en tareas CPU-Bound?
-6. El directorio practica3/04-io-bound contiene programas en C y en Python que ejecutan una
-tarea que simula ser IO-Bound (tiene una llamada a sleep lo que permite interleaving de
-forma similar al uso de IO).
-a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los
-siguientes incisos.
-b. Ejecute los distintos ejemplos con make (usar make help para ver cómo) y observe
-cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa
-completo en finalizar.
-c. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y
-klt)?
-d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python
-(ult.py y klt.py)?
+Que no son óptimos xd 
+
+6. El directorio `practica3/04-io-bound` contiene programas en C y en Python que ejecutan una tarea que simula ser IO-Bound (tiene una llamada a sleep lo que permite interleaving de forma similar al uso de IO).
+a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los siguientes incisos.
+b. Ejecute los distintos ejemplos con make (usar make help para ver cómo) y observe cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa completo en finalizar.
+c. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y klt)?
+d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python (ult.py y klt.py)?
 e. ¿Qué conclusión puede sacar respecto a los ULT en tareas IO-Bound?
 7. Diríjase nuevamente en la terminal a practica3/03-cpu-bound y modifique klt.py de forma
 que vuelva a crear 5 threads.
