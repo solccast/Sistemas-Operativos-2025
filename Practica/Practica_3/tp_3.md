@@ -420,23 +420,106 @@ g. ¿Qué conclusión puede sacar respecto a los ULT en tareas CPU-Bound?
 Que no son óptimos xd 
 
 6. El directorio `practica3/04-io-bound` contiene programas en C y en Python que ejecutan una tarea que simula ser IO-Bound (tiene una llamada a sleep lo que permite interleaving de forma similar al uso de IO).
-a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los siguientes incisos.
-b. Ejecute los distintos ejemplos con make (usar make help para ver cómo) y observe cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa completo en finalizar.
+a. Ejecute `htop` en una terminal separada para monitorear el uso de CPU en los siguientes incisos.
+b. Ejecute los distintos ejemplos con `make` (usar `make help` para ver cómo) y observe cómo aparecen los resultados, cuánto tarda cada thread y cuanto tarda el programa completo en finalizar.
+
+```bash
+#run_ult
+Starting the program.
+[Thread 93886811693792] Doing some work...
+[Thread 93886811760848] Doing some work...
+[Thread 93886811827904] Doing some work...
+[Thread 93886811894960] Doing some work...
+[Thread 93886811962016] Doing some work...
+[Thread 93886811693792] Done with work in 10.062124 seconds.
+[Thread 93886811760848] Done with work in 10.062520 seconds.
+[Thread 93886811827904] Done with work in 10.062448 seconds.
+[Thread 93886811894960] Done with work in 10.062432 seconds.
+[Thread 93886811962016] Done with work in 10.062428 seconds.
+All threads are done in 10.062868 seconds
+```
+
+```bash
+#run_klt
+Starting the program.
+[Thread 140148014618304] Doing some work...
+[Thread 140147989440192] Doing some work...
+[Thread 140147997832896] Doing some work...
+[Thread 140148023011008] Doing some work...
+[Thread 140148006225600] Doing some work...
+[Thread 140147989440192] Done with work in 10.947092 seconds.
+[Thread 140148006225600] Done with work in 10.945976 seconds.
+[Thread 140148023011008] Done with work in 10.947544 seconds.
+[Thread 140148014618304] Done with work in 10.948417 seconds.
+[Thread 140147997832896] Done with work in 10.948717 seconds.
+All threads are done in 10.963011 seconds
+```
+
+```bash
+#run_ult_py
+Starting the program.
+[greenlet_id=140358968758080] Doing some work...
+[greenlet_id=140358968758400] Doing some work...
+[greenlet_id=140358969128448] Doing some work...
+[greenlet_id=140358961522752] Doing some work...
+[greenlet_id=140358961522912] Doing some work...
+[greenlet_id=140358968758080] Done with work.
+[greenlet_id=140358968758400] Done with work.
+[greenlet_id=140358969128448] Done with work.
+[greenlet_id=140358961522752] Done with work.
+[greenlet_id=140358961522912] Done with work.
+All greenlets are done in 10.155638694763184 seconds
+```
+
+```bash
+#run_klt_py
+Starting the program.
+[thread_id=140694574065344] Doing some work...
+[thread_id=140694565672640] Doing some work...
+[thread_id=140694557279936] Doing some work...
+[thread_id=140694548887232] Doing some work...
+[thread_id=140694337353408] Doing some work...
+[thread_id=140694557279936] Done with work.
+[thread_id=140694574065344] Done with work.
+[thread_id=140694337353408] Done with work.
+[thread_id=140694548887232] Done with work.
+[thread_id=140694565672640] Done with work.
+All threads are done in 10.077131986618042 seconds
+
+```
+
+```bash
+#run_klt_py_nogil
+Starting the program.
+[thread_id=140700968675008] Doing some work...
+[thread_id=140700960282304] Doing some work...
+[thread_id=140700951889600] Doing some work...
+[thread_id=140700943496896] Doing some work...
+[thread_id=140700935104192] Doing some work...
+[thread_id=140700951889600] Done with work.
+[thread_id=140700968675008] Done with work.
+[thread_id=140700960282304] Done with work.
+[thread_id=140700943496896] Done with work.
+[thread_id=140700935104192] Done with work.
+All threads are done in 10.132906198501587 seconds
+```
+
 c. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en C (ult y klt)?
+Los tiempos de ejecución entre ambos no son muy diferentes. 
 d. ¿Cómo se comparan los tiempos de ejecución de los programas escritos en Python (ult.py y klt.py)?
+Los tiempos de ejecución entre ambos no son muy diferentes. El GIL no afecta negativamente en tareas IO-Bound. 
+En `klt.py` con GIL aunque el GIL impide la ejecución paralela real en CPU-bound, no bloquea operaciones de I/O, porque Python libera el GIL cuando una función hace `sleep()` , espera un socket, etc.
+En `ult.py` con GIL se usan librerías como greenlet o gvent que permiten la concurrencia cooperativa, estos funcionan muy bien con I/O, pero requieren que el código sea explícitamente no bloqueante.
+
 e. ¿Qué conclusión puede sacar respecto a los ULT en tareas IO-Bound?
-7. Diríjase nuevamente en la terminal a practica3/03-cpu-bound y modifique klt.py de forma
-que vuelva a crear 5 threads.
-a. Ejecute htop en una terminal separada para monitorear el uso de CPU en los
-siguientes incisos.
-b. Ejecute una versión de Python que tenga el GIL deshabilitado usando: `make
-run_klt_py_nogil` (esta operación tarda la primera vez ya que necesita descargar un
-container con una versión de Python compilada explícitamente con el GIL
-deshabilitado).
-c. ¿Cómo se comparan los tiempos de ejecución de klt.py usando la versión normal de
-Python en contraste con la versión sin GIL?
-d. ¿Qué conclusión puede sacar respecto a los KLT con el GIL de Python en tareas
-CPU-Bound?
+En conclusión, los ULT se desempeñan correctamente en tareas I/O-bound, pero suelen ser ligeramente menos eficientes que los KLT debido al modelo de planificación cooperativa y al overhead adicional.
+
+7. Diríjase nuevamente en la terminal a `practica3/03-cpu-bound` y modifique `klt.py` de forma que vuelva a crear 5 threads.
+a. Ejecute `htop` en una terminal separada para monitorear el uso de CPU en los siguientes incisos.
+b. Ejecute una versión de Python que tenga el GIL deshabilitado usando: `make run_klt_py_nogil` (esta operación tarda la primera vez ya que necesita descargar un container con una versión de Python compilada explícitamente con el GIL deshabilitado).
+c. ¿Cómo se comparan los tiempos de ejecución de klt.py usando la versión normal de Python en contraste con la versión sin GIL?
+d. ¿Qué conclusión puede sacar respecto a los KLT con el GIL de Python en tareas CPU-Bound?
+En conclusión, en tareas CPU-Bound, los KLT (Kernel-Level Threads) en Python se ven fuertemente limitados por el GIL (Global Interpreter Lock), lo que impide aprovechar el paralelismo real y reduce la eficiencia de la concurrencia.
 
 
 
