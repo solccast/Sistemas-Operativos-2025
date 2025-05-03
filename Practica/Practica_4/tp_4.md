@@ -4,10 +4,12 @@
 
 ### Parte 1: Conceptos teóricos 
 1. Defina **virtualización**. Investigue cuál fue la primera implementación que se realizó. 
+
 La virtualización permite dividir los recursos de hardware de un sistema —como procesadores, memoria y almacenamiento, entre otros— entre varios sistemas virtuales, denominados máquinas virtuales (VM). Utiliza software para crear una capa de abstracción sobre el hardware del sistema.
 Cada VM ejecuta su propio sistema operativo y se comporta como un ordenador independiente, aunque se esté ejecutando en una parte del hardware del sistema subyacente real.
 
 El nacimiento de la virtualización se remonta a 1964, cuando IBM diseñó e introdujo CP-40, un proyecto de investigación experimental de tiempo compartido para el sistema/360 de IBM. El CP-40, que más tarde evolucionó hasta convertirse en el CP-67 y luego en Unix, proporcionó un hardware informático capaz de soportar múltiples usuarios simultáneos y sentó las bases de las máquinas virtuales. [^1]
+
 
 2. ¿Qué diferencia existe entre virtualización y emulación?
 Un emulador permite que un entorno informático replique la funcionalidad de otro, permitiendo que el software escrito para una plataforma se ejecute en otra[^2].
@@ -82,6 +84,149 @@ En lugar de virtualizar el hardware subyacente, los contenedores virtualizan el 
 - **Control groups**: Permiten limitar y monitorizar el uso de recursos (CPU, RAM, disco, red, etc.) por grupo de procesos. Se pueden asignar límites y prioridades. Impiden que un contenedor acapare todo el hardware.
 - **Sistema de archivos**: Permiten combinar capas de archivos de solo lectura y escritura. Esto es clave para: compartir capas comunes entre contenedores (por ejemplo, la capa base de una imagen) o crear nuevos contenedores sin duplicar todo el sistema de archivos.
 - **`chroot` y `pivot_root`**: Herramientas para cambiar el root filesystem de un proceso, de modo que parezca que el contenedor vive en su propio sistema de archivos aislado.
+
+### Parte 2: `chroot`, Control Groups y Namespaces
+
+#### Chroot 
+En algunos casos suele ser conveniente restringir la cantidad de información a la que un proceso puede acceder. Uno de los métodos más simples para aislar servicios es ``chroot`, que consiste simplemente en cambiar lo que un proceso, junto con sus hijos, consideran que es el directorio raíz, limitando de esta forma lo que pueden ver en el sistema de archivos. En esta sección de la práctica se preparará un árbol de directorios que sirva como directorio raíz para la ejecución de una shell.
+
+1. ¿Qué es el comando `chroot`? ¿cuál es su finalidad?
+El comando  cambia el directorio raíz al directorio especificado por el directorio pasado por parámetro. De este modo se puede crear un nuevo entorno separado lógicamente del directorio raíz del sistema principal. Un programa que se ejecuta en este entorno modificado no puede acceder a los archivos y comandos fuera de ese árbol de directorios del entorno. 
+
+2. Crear un subdirectorio llamado `sobash` dentro del directorio root. Intente ejecutar el comando `chroot /root/sobash`. ¿Cuál es el resultado? ¿Por qué se obtiene ese resultado?
+```bash
+root@so:~/sobash# chroot /root/sobash
+chroot: failed to run command ‘/bin/bash’: No such file or directory
+``` 
+Se obtiene ese resultado porque después del comando, el proceso pierde acceso al sistema real y todo lo que intente ejecutar debe existir dentro del nuevo root. Dado que está vacío, no hay nada que ejecutar. 
+
+3. Cree la siguiente jerarquía de directorios dentro de `sobash`:
+```bash
+sobash/
+├── bin
+├── lib
+│   └── x86_64-linux-gnu
+└── lib64
+```
+
+4. Verifique qué bibliotecas compartidas utiliza el binario `/bin/bash` usando el comando `ldd /bin/bash`.¿En qué directorio se encuentra `linux-vdso.so.1`? ¿Por qué?
+```bash
+root@so:~/sobash# ldd /bin/bash
+        linux-vdso.so.1 (0x00007f52d82bf000)
+        libtinfo.so.6 => /lib/x86_64-linux-gnu/libtinfo.so.6 (0x00007f52d8140000)
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f52d7f5f000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007f52d82c1000)
+```
+`linux-vdso.so.1` es un objeto virtual compartido que no tiene ningún archivo físico en el disco; es una parte del kernel que se exporta al espacio de direcciones de cada programa cuando se carga.
+El mecanismo vDSO (Objeto Dinámico Virtual Compartido) permite al kernel exportar un segmento de memoria al espacio de direcciones de un proceso. Esto permite que llamadas específicas del sistema se ejecuten en el espacio de usuario en lugar del espacio del kernel, lo que ofrece una ventaja de rendimiento al evitar la sobrecarga de un cambio de contexto.
+
+5. Copie en `/root/sobash` el programa `/bin/bash` y todas las librerías utilizadas por el
+programa bash en los directorios correspondientes. Ejecute nuevamente el comando
+chroot ¿Qué sucede ahora?
+
+```bash
+#Sacado de chatgpt pero usé lo mismo 
+sudo cp -v /lib/x86_64-linux-gnu/libtinfo.so.6 /root/sobash/lib/x86_64-linux-gnu/
+sudo cp -v /lib/x86_64-linux-gnu/libc.so.6 /root/sobash/lib/x86_64-linux-gnu/
+sudo cp -v /lib64/ld-linux-x86-64.so.2 /root/sobash/lib64/
+```
+Al ejecutar de nuevo el comando se tiene:
+```bash
+root@so:~/sobash# chroot /root/sobash
+bash-5.2# echo "Hola mundo"
+Hola mundo
+```
+Se puedo entrar al entorno. 
+
+6. ¿Puede ejecutar los comandos `cd "directorio"` o `echo`? ¿Y el comando `ls`? ¿A qué se debe esto?
+Tanto `cd` como `echo` funcionan por que el shell lo iplementa directamente. En el caso de `ls` no porque es un programa externo y no está el binario en el entorno, entonces es necesario copiarlo dentro del entorno (igual a como se hizo con bash).
+
+7. ¿Qué muestra el comando `pwd`? ¿A qué se debe esto?
+```bash
+bash-5.2# pwd
+/
+```
+Se debe a que nos encontramos dentro del entorno `chroot`.
+
+8. Salir del entorno chroot usando exit
+```bash
+bash-5.2# exit
+exit
+root@so:~/sobash# 
+```
+
+9. Usando el repositorio de la cátedra acceda a los materiales en `practica4/02-chroot`:
+a. Verifique que tiene instalado `busybox` en `/bin/busybox`
+b. Cree un `chroot` con busybox usando `/buildbusyboxroot.sh`
+```bash
+root@so:/home/so/practica4/codigo-para-practicas/practica4/02-chroot# make
+./buildbusyboxroot.sh
+        linux-vdso.so.1 (0x00007f669f1bb000)
+        libresolv.so.2 => /lib/x86_64-linux-gnu/libresolv.so.2 (0x00007f669f0e0000)
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f669eeff000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007f669f1bd000)
+BusyBox root filesystem created in /home/so/practica4/codigo-para-practicas/practica4/02-chroot/busyboxroot
+You can now chroot into it with:
+chroot /home/so/practica4/codigo-para-practicas/practica4/02-chroot/busyboxroot /bin/sh
+```
+c. Entre en el `chroot`
+```bash
+root@so:/home/so/practica4/codigo-para-practicas/practica4/02-chroot# chroot /home/so/practica4/codigo-para-practicas/practica4/02-chroot/busyboxroot /bin/sh
+
+
+BusyBox v1.35.0 (Debian 1:1.35.0-4+b3) built-in shell (ash)
+Enter 'help' for a list of built-in commands.
+
+/ # 
+```
+
+d. Busque el directorio `/home/so` ¿Qué sucede? ¿Por qué?
+
+e. Ejecute el comando `ps aux` ¿Qué procesos ve? ¿Por qué (pista: ver el contenido de `/proc`)?
+```bash
+/ # ps aux
+PID   USER     COMMAND
+```
+No se ve ná xd. 
+```bash
+/ # cd proc/
+/proc # ls
+/proc # 
+```
+Como `chroot` aísla completamente el sistema de archivos entonces si dentro de este entorno no se encuentra el directorio entonces no puede ser accedido. 
+
+f. Monte `/proc` con `mount -t proc proc /proc` y vuelva a ejecutar `ps aux` ¿Qué procesos ve? ¿Por qué?
+```bash
+/ # mount -t proc proc /proc
+/ # ps aux
+PID   USER     COMMAND
+    1 0        {systemd} /sbin/init
+    2 0        [kthreadd]
+    3 0        [pool_workqueue_]
+    4 0        [kworker/R-rcu_g]
+    5 0        [kworker/R-sync_]
+    # Más y más procesos...
+ 8262 0        /bin/sh
+ 8677 0        [kworker/1:0-eve]
+ 8734 1000     /bin/bash --init-file /home/so/.vscode-server/cli/servers/Stable-17baf841131aa23349f217ca7c570c76ee87b957/server/out/vs/workbench/contrib/
+ 8768 1000     sleep 180
+ 9146 0        ps aux
+```
+Luego de montar `/proc` el comando `ps aux` muestra todos los procesos del sistema real (no solo del entorno) porque al montarlo el chroot puede acceder al contenido real de `/proc`  que sigue siendo el del sistema host. 
+
+g. Acceda a `/proc/1/root/home/so` ¿Qué sucede?
+```bash
+/ # cd /proc/1/root/home/so
+sh: getcwd: No such file or directory
+(unknown) # ls
+install_deps.sh  kernel           practica1        practica2        practica3        practica4
+sh: getcwd: No such file or directory
+(unknown) # 
+```
+
+h. ¿Qué conclusiones puede sacar sobre el nivel de aislamiento provisto por `chroot`?
+Incluso desde dentro de un `chroot`, si se tienen permisos para acceder a `/proc`, se puede usar `/proc/1/root/...` para salir del aislamiento del `chroot` y ver el sistema de archivos real. Por eso, los chroot no son una verdadera medida de seguridad: un usuario con privilegios root dentro del chroot puede escapar fácilmente usando `/proc`.
+
 
 ##### Links de interés
 https://www.redhat.com/es/topics/virtualization/what-is-virtualization
