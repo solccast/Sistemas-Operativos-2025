@@ -227,13 +227,235 @@ sh: getcwd: No such file or directory
 h. ¿Qué conclusiones puede sacar sobre el nivel de aislamiento provisto por `chroot`?
 Incluso desde dentro de un `chroot`, si se tienen permisos para acceder a `/proc`, se puede usar `/proc/1/root/...` para salir del aislamiento del `chroot` y ver el sistema de archivos real. Por eso, los chroot no son una verdadera medida de seguridad: un usuario con privilegios root dentro del chroot puede escapar fácilmente usando `/proc`.
 
+#### Control Groups
+
+##### Preparación 
+Actualmente Debian y la mayoría de las distribuciones usan CGroups 2 por defecto, pero para esta práctica usaremos CGroups 1. Para esto es necesario cambiar un parámetro de arranque del sistema en grub:
+1. Editar /etc/default/grub: 
+```
+# Cambiar:
+GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+# Por:
+GRUB_CMDLINE_LINUX_DEFAULT="quiet systemd.unified_cgroup_hierarchy=0"
+```
+2. Actualizar la configuracion de GRUB 
+3. Reiniciar la máquina 
+4. Verificar que se esté usando CGroups 1. Para esto basta con hacer `ls /sys/fs/cgroup/`. Se deberían ver varios subdirectorios como cpu, memory, blkio, etc. (en vez de todo montado de forma unificada).
+```bash
+so@so:/etc$ ls /sys/fs/cgroup
+blkio  cpuacct      devices  hugetlb  net_cls           net_prio    pids  systemd
+cpu    cpu,cpuacct  freezer  misc     net_cls,net_prio  perf_event  rdma  unified
+```
+
+A continuación se probará el uso de cgroups. Para eso se crearán dos procesos que compartirán una misma CPU y cada uno la tendrá asignada un tiempo determinado.
+Nota: es posible que para ejecutar xterm tenga que instalar un gestor de ventanas. Esto puede hacer con `apt-get install xterm`.
+
+##### Taller 
+1. ¿Dónde se encuentran montados los cgroups? ¿Qué versiones están disponibles?
+En `/sys/fs/cgroup` se encuentra el directorio que contendrá los puntos de montaje de las diferentes jerarquías. 
+Cada controlador se monta en su propio sistema de archivos, por ejemplo: 
+```bash
+/sys/fs/cgroup/cpu/
+/sys/fs/cgroup/memory/
+```
+Hay dos versiones Cgroups v1 y Cgroups v2:
+
+| Cgroups v1 | Cgroups v2 |
+| -- | -- | 
+| Cada controlador (CPU, memoria, etc.) tiene su propio montaje independiente. | Usa un sistema unificado de jerarquía: todos los controladores se montan en un solo árbol. |
+| Usa varios archivos por controlador (`memory.limit_in_bytes`, `cpu.shares`, etc.). | Usa una interfaz estandarizada: por ejemplo, en lugar de `memory.limit_in_bytes`, usa `memory.max`.|
+| Se pueden añadir procesos a cualquier nivel del árbol, incluso a nodos intermedios. Puede egnerar ambigüedad en el control de recursos. | Sólo se pueden añadir procesos a **nodos hoja**. | 
+
+A tener en cuenta: 
+- **Cgroup v1**: múltiples montajes por controlador en `/sys/fs/cgroup/<controlador>/`.
+- **Cgroup v2**: un único montaje unificado en `/sys/fs/cgroup/`, con archivo `cgroup.controllers`.
+
+2. ¿Existe algún controlador disponible en cgroups v2? ¿Cómo puede determinarlo?
+Sí, cgroups v2 tiene sus propios controladores. Mediante `cat /sys/fs/cgroup/cgroup.controllers` se pueden consultar los controlares disponibles.
+
+3. ¿Qué sucede si se remueve un controlador de cgroups v1 (por ej. `umount /sys/fs/cgroup/rdma`).
+El kernel deja de aplicar los controles asociados a ese subsistema y tampoco se podrán crear nuevos cgroups que usen ese controlador. 
+
+4. Crear dos cgroups dentro del subsistema cpu llamados cpualta y cpubaja. Controlar que se hayan creado tales directorios y ver si tienen algún contenido.
+```bash
+mkdir /sys/fs/cgroup/cpu/<nombre_cgroup> 
+```
+Resultado: 
+```bash
+root@so:/sys/fs/cgroup# mkdir /sys/fs/cgroup/cpu/cpubaja
+root@so:/sys/fs/cgroup# ls /sys/fs/cgroup/cpu/cpubaja
+cgroup.clone_children      cpu.cfs_burst_us
+cgroup.procs               cpu.cfs_period_us
+cpuacct.stat               cpu.cfs_quota_us
+cpuacct.usage              cpu.idle
+cpuacct.usage_all          cpu.shares
+cpuacct.usage_percpu       cpu.stat
+cpuacct.usage_percpu_sys   cpu.stat.local
+cpuacct.usage_percpu_user  notify_on_release
+cpuacct.usage_sys          tasks
+cpuacct.usage_user
+#Se imprime lo mismo para el caso de cpualta
+```
+
+5. En base a lo realizado, ¿qué versión de cgroup se está utilizando?
+Se está usando la v1 dado que un recurso (cpu) le generamos un cgroup.  El hecho de que exista `/sys/fs/cgroup/cpu/` indica que cpu está montado de forma independiente, como es típico de v1.  
+
+6. Indicar a cada uno de los cgroups creados en el paso anterior el porcentaje máximo de CPU que cada uno puede utilizar. El valor de `cpu.shares` en cada cgroup es 1024. El cgroup cpualta recibirá el 70 % de CPU y cpubaja el 30 %.
+```bash
+echo 717 > /sys/fs/cgroup/cpu/cpualta/cpu.shares
+echo 307 > /sys/fs/cgroup/cpu/cpubaja/cpu.shares
+```
+
+7. Iniciar dos sesiones por ssh a la VM.(Se necesitan dos terminales, por lo cual, también podría ser realizado con dos terminales en un entorno gráfico). Referenciaremos a una terminal como termalta y a la otra, termbaja
+
+8. Usando el comando `taskset`, que permite ligar un proceso a un core en particular, se iniciará el siguiente proceso en background. Uno en cada terminal. Observar el PID asignado al proceso que es el valor de la columna 2 de la salida del comando.
+```bash
+taskset -c 0 md5sum /dev/urandom &
+```
+![alt text](image-1.png)
+
+9. Observar el uso de la CPU por cada uno de los procesos generados (con el comando `top` en otra terminal). ¿Qué porcentaje de CPU obtiene cada uno aproximadamente?
+
+Resultado: 
+![alt text](image-2.png)
+
+Se puede ver la asignación de ambos es del 50% para ambos. 
+
+10. En cada una de las terminales agregar el proceso generado en el paso anterior a uno de los cgroup (termalta agregarla en el cgroup cpualta, termbaja en cpubaja. El `process_pid` es el que obtuvieron después de ejecutar el comando `taskset`).
+```bash
+echo "process_pid" > /sys/fs/cgroup/cpu/cpualta/cgroup.procs
+```
+
+Resultado: 
+![alt text](image-3.png)
+
+Se ve aplicada la configuración del límite de CPU que puede usar tanto cpualta como cpubaja.
+
+12. En termalta, eliminar el job creado (con el comando `jobs` ven los trabajos, con `kill %1` lo eliminan. No se olviden del %.). ¿Qué sucede con el uso de la CPU?
+
+```bash
+root@so:/sys/fs/cgroup# jobs
+[1]+  Ejecutando              taskset -c 0 md5sum /dev/urandom &
+root@so:/sys/fs/cgroup# kill %1
+```
+![alt text](image-4.png)
+
+Se observa que el proceso que queda de termalta (cpualta) toma todo el CPU (100%) cuando en realidad está configurada solo para el 30%. 
+
+13. Finalizar el otro proceso md5sum.
+14. En este paso se agregarán a los cgroups creados los PIDs de las terminales (Importante: si se tienen que agregar los PID desde afuera de la terminal ejecute el comando echo $$ dentro de la terminal para conocer el PID a agregar. Se debe agregar el PID del shell ejecutando en la terminal).
+
+```bash
+echo $$ > /sys/fs/cgroup/cpu/cpualta/cgroup.procs #(termalta)
+echo $$ > /sys/fs/cgroup/cpu/cpubaja/cgroup.procs #(termbaja)
+
+```
+
+15. Ejecutar nuevamente el comando `taskset -c 0 md5sum /dev/urandom &` en cada una de las terminales. ¿Qué sucede con el uso de la CPU? ¿Por qué?
+![alt text](image-5.png)
+
+A pesar de que en el paso 11 se pudo ver el mismo resultado acá el camino es diferente. En este caso se agrega la terminal shell al cgroup, ésta terminal genera un nuevo proceso y acá viene la magia: este proceso hereda el cgroup del proceso padre, entonces también usa el 70% y 30% correspondiente a cada terminal.  
+> Una vez que el shell pertenece a un cgroup, cualquier proceso lanzado desde él también lo hace, lo cual evita tener que asignarlos manualmente.
+
+16. Si en termbaja ejecuta el comando: `taskset -c 0 md5sum /dev/urandom &` (deben quedar 3 comandos md5 ejecutando a la vez, 2 en el termbaja). ¿Qué sucede con el uso de la CPU? ¿Por qué?
+Se observa que los dos procesos pertenecientes termbaja se distribuyen (compiten) los recursos entre ellos mas no ocupan el % que le corresponde del cgroup. 
+![alt text](image-6.png)
+
+
+#### Namespaces
+1. Explique el concepto de namespaces. 
+Un _namespace_ envuelve un recurso global del sistema en una abstracción que hace parecer a los procesos dentro de él que tienen su propia instancia aislada del recurso global. Los cambios en un determinado recurso global sólo son visibles para los procesos de ese espacio de nombres y no afectan al resto del sistema ni a otros espacios de nombres [^8]. 
+> Cada namespace crea una vista limitada o independiente de algún recurso del sistema, como procesos, red o sistema de archivos.
+
+2. ¿Cuáles son los posibles namespaces disponibles?
+
+| Namespace | Descripción                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `mnt`     | Aísla los puntos de montaje (sistema de archivos). Permite que diferentes procesos tengan su propio conjunto de montajes. |
+| `pid`     | Aísla los identificadores de procesos. Los procesos en un namespace ven solo sus propios procesos (útil para containers). |
+| `net`     | Aísla interfaces de red, direcciones IP, rutas, puertos. Usado para crear redes virtuales por contenedor.                 |
+| `ipc`     | Aísla recursos de comunicación entre procesos (como colas de mensajes, semáforos, memoria compartida).                    |
+| `uts`     | Aísla el nombre del sistema y el dominio (hostname, nodename).                                                            |
+| `user`    | Aísla el espacio de IDs de usuario. Permite mapear un usuario sin privilegios fuera del namespace como `root` dentro.     |
+| `cgroup`  | Aísla la vista del árbol de controladores de cgroups. Procesos pueden ver/controlar solo su jerarquía.                    |
+| `time`    | Aísla el reloj del sistema (desde Linux 5.6). Permite tener distintos relojes (por ej. para simulaciones).                |
+
+3. ¿Cuáles son los namespaces de tipo Net, IPC y UTS una vez que inicie el sistema (los que se iniciaron la ejecutar la VM de la cátedra)?
+Se analizó el proceso con PID 1 mediante el uso de `ls -l /proc/1/ns` y se obtiene lo siguiente: 
+```bash
+lrwxrwxrwx 1 root root 0 may 10 22:39 ipc -> 'ipc:[4026531839]'
+lrwxrwxrwx 1 root root 0 may 10 22:39 net -> 'net:[4026531840]'
+lrwxrwxrwx 1 root root 0 may 10 22:39 uts -> 'uts:[4026531838]'
+```
+El identificador de namespace es generado por el kernel para distinguir entre diferentes instancias del tipo de namespace. Cada entrada es un enlace simbólico a una instancia del namespace del tipo correspondiente. 
+
+> Dado el ID de un namespace, si otro proceso tiene el mismo entonces éste comparte ese namespace. Si tiene uno distinto, está aislado del primero. 
+
+4. ¿Cuáles son los namespaces del proceso `cron`[^9]? Compare los namespaces net, ipc y uts con los del punto anterior, ¿son iguales o diferentes?
+```bash
+lrwxrwxrwx 1 root root 0 may 10 22:49 ipc -> 'ipc:[4026531839]'
+lrwxrwxrwx 1 root root 0 may 10 22:49 net -> 'net:[4026531840]'
+lrwxrwxrwx 1 root root 0 may 10 22:49 uts -> 'uts:[4026531838]'
+```
+Se compara con el proceso de PID 1: tienen los mismos valores de ID de namespace -> comparten el mismo namespace. 
+
+5. Usando el comando unshare crear un nuevo namespace de tipo UTS.
+a. unshare `–-uts sh` (son dos (- -) guiones juntos antes de uts)
+b. ¿Cuál es el nombre del host en el nuevo namespace? (comando hostname)
+c. Ejecutar el comando lsns. ¿Qué puede ver con respecto a los namespace?.
+```bash
+root@so:/proc# unshare --uts sh
+# hostname
+so
+# lsns
+        NS TYPE   NPROCS   PID USER             COMMAND
+4026531834 time      133     1 root             /sbin/init
+4026531835 cgroup    133     1 root             /sbin/init
+4026531836 pid       133     1 root             /sbin/init
+4026531837 user      133     1 root             /sbin/init
+4026531838 uts       128     1 root             /sbin/init
+4026531839 ipc       133     1 root             /sbin/init
+4026531840 net       133     1 root             /sbin/init
+4026531841 mnt       129     1 root             /sbin/init
+4026532163 mnt         1   336 root             ├─/lib/systemd/systemd-udevd
+4026532164 uts         1   336 root             ├─/lib/systemd/systemd-udevd
+4026532165 mnt         1   399 systemd-timesync ├─/lib/systemd/systemd-timesyncd
+4026532184 uts         1   399 systemd-timesync ├─/lib/systemd/systemd-timesyncd
+4026532241 mnt         1   508 root             ├─/lib/systemd/systemd-logind
+4026532253 uts         1   508 root             └─/lib/systemd/systemd-logind
+4026531862 mnt         1    57 root             kdevtmpfs
+4026532187 uts         2  5814 root             sh
+```
+Se muestra el nombre del host del sistema anfitrion (_so_). Además se obserba que para el proceso 1 tiene un ID diferente del namespace del namespace creado anteriormente (PID 5814). 
+
+d. Modificar el nombre del host en el nuevo hostname.
+En el mismo entorno en el que se ejecutó `unshare` se realizó `hostname pepe-tormenta`. Al volver a revisar el nombre del hostname vemos que se actualizó. 
+e. Abrir otra sesión, ¿cuál es el nombre del host anfitrión?
+Se mantiene con _so_. 
+f. Salir del namespace (exit). ¿Qué sucedió con el nombre del host anfitrión? 
+Se mantuvo con _so_. 
+
+## Más cositas
+
+### `cgroups` [^7]
+Sirven para controlar la asignación de recursos a los procesos. Limitan a qué se accede y qué operaciones se permiten modificando `/etc/security/limits.conf` qeu acota la máxima asignación de recursos. Los grupos de control permiten definir jerarquías en las que se agrupan los procesos de manera que un administrador puede definir con gran detalle la manera en la que se asignan los recursos (no solo tiempo de atención de CPU, sino también I/O y memoria principal) o llevar la contabilidad de los mismos.
+
+### Vínculo simbólico 
+Un vínculo simbólico (también llamado enlace simbólico o symlink) es un tipo especial de archivo en Linux que apunta a otro archivo o directorio.
+- Si se borra o mueve el archivo original, el symlink queda roto.
+- Se usan para abreviar rutas largas, crear alias, o gestionar versiones.
 
 ##### Links de interés
 https://www.redhat.com/es/topics/virtualization/what-is-virtualization
+https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/6/html/resource_management_guide/ch01#sec-How_Control_Groups_Are_Organized
 
+##### Referencias
 [^1]: https://www.ibm.com/es-es/think/topics/virtual-machines
 [^2]: https://medium.com/@rwothrachel/emulation-vs-simulation-in-software-development-88cef2e23885
 [^3]: https://www.ibm.com/es-es/topics/virtualization
 [^4]: https://www.ibm.com/es-es/think/topics/hypervisors
 [^5]: https://medium.com/@ravipatel.it/understanding-hypervisors-exploring-type-1-vs-type-2-and-full-vs-para-virtualization-71b4dad9abd9
 [^6]: https://www.ibm.com/think/topics/containers
+[^7]: https://www.reddit.com/r/linux/comments/103qxhl/linux_cgroups_control_groups_part_1/?tl=es-es&rdt=41107
+[^8]: https://docs.redhat.com/es/documentation/red_hat_enterprise_linux/8/html/managing_monitoring_and_updating_the_kernel/what-namespaces-are_setting-limits-for-applications#what-namespaces-are_setting-limits-for-applications
+[^9]: demonio del sistema (es decir, un proceso que corre en segundo plano) que se encarga de ejecutar tareas programadas automáticamente en momentos específicos.
