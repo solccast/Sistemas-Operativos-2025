@@ -426,7 +426,7 @@ so
 4026531862 mnt         1    57 root             kdevtmpfs
 4026532187 uts         2  5814 root             sh
 ```
-Se muestra el nombre del host del sistema anfitrion (_so_). Además se obserba que para el proceso 1 tiene un ID diferente del namespace del namespace creado anteriormente (PID 5814). 
+Se muestra el nombre del host del sistema anfitrion (_so_). Además se observa que para el proceso 1 tiene un ID diferente del namespace del namespace creado anteriormente (PID 5814). 
 
 d. Modificar el nombre del host en el nuevo hostname.
 En el mismo entorno en el que se ejecutó `unshare` se realizó `hostname pepe-tormenta`. Al volver a revisar el nombre del hostname vemos que se actualizó. 
